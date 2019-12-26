@@ -1,0 +1,653 @@
+---
+title: "Team 2 - Homework Two"
+subtitle: "Assignment 2: KJ 7.2; KJ 7.5"
+author: "Sang Yoon (Andy) Hwang"
+date: "DATE:2019-11-01"
+output: 
+  pdf_document
+---
+
+## Dependencies 
+
+```{r, echo = F, message=F, warning=F, error=F, comment=NA, self.contained = F}
+# SOURCE DEFAULT SETTINGS
+#source('~/GitHub/CUNY_DATA_624/Homework-Two/defaults.R')
+source('C:/Users/ahwang/Desktop/Cuny/DATA624/hw2/defaults.R')
+```
+
+```{r libraries, echo=T}
+# predictive modeling
+libraries('mlbench', 'caret', 'AppliedPredictiveModeling')
+
+# Formatting Libraries
+libraries('default', 'knitr', 'kableExtra')
+
+# Plotting Libraries
+libraries('ggplot2', 'grid', 'ggfortify')
+```
+
+## (1) Kuhn & Johnson 7.2
+
+>  Friedman (1991) introduced several benchmark data sets create by simulation. One of these simulations used the following nonlinear equation to create data: $y = 10\text{sin}(\pi x_1 x_2)20(x_3-0.5)^210x_45x_5N(0,\sigma^2)$; where the $x$ values are random variables uniformly distributed between $[0, 1]$ (there are also 5 other non-informative variables also created in the simulation). 
+
+**The package `mlbench` contains a function called `mlbench.friedman1` that simulates these data:** 
+
+```{r kj-7.2-ex1, cache=TRUE}
+set.seed(200) 
+trainingData <- mlbench.friedman1(200, sd = 1)
+trainingData$x <- data.frame(trainingData$x) 
+
+featurePlot(trainingData$x, trainingData$y) 
+
+testData <- mlbench.friedman1(5000, sd = 1)
+testData$x <- data.frame(testData$x) 
+```
+
+>> (a) Tune several models on these data. For example: 
+
+```{r kj-7.2-ex2, echo=F}
+knnModel <- train(x = trainingData$x,
+                  y = trainingData$y, 
+                  method = "knn",
+                  preProc = c("center", "scale"), 
+                  tuneLength = 10) 
+knnModel 
+
+knnPred <- predict(knnModel, newdata = testData$x) 
+
+## The function 'postResample' can be used to get the test set performance values
+postResample(pred = knnPred, obs = testData$y)
+```
+
+**Model 1: KNN model with hyperparameter tuning**
+```{r kj-7.2-1, echo=F}
+set.seed(100)
+knn_model <- train(trainingData$x,
+ trainingData$y,
+ method = "knn",
+ # Center and scaling will occur for new predictions too
+ preProc = c("center", "scale"),
+ tuneGrid = data.frame(.k = 1:50),
+ trControl = trainControl(method = "cv"))
+```
+
+**Train set CV performance - Hyperparameter tuning:**
+```{r, echo=F}
+knn_model
+```
+
+**Test set performance values:**
+```{r, echo=F}
+knn_Pred <- predict(knn_model, newdata = testData$x)
+knn_pv <- postResample(pred = knn_Pred, obs = testData$y)
+knn_pv
+```
+Unlike given KNN example by author where `tuneLength` = 10 to find 10 odd numbered Ks starting from 5, we will set a new KNN model with `tuneGrid` running from k = 1 to 50 after CV process. RMSE on validation set was used to select the optimal model using the smallest value. The final value used for the model was k = 11 with RMSE on test set of `r knn_pv[1]`.
+
+
+**Model 2: Neural Networks**
+```{r kj-7.2-2, cache = TRUE, echo=F}
+# we could not find 
+#findCorrelation(cor(trainingData$x), cutoff = .75)
+
+# hyperparameter tuning for nnet
+nnetGrid <- expand.grid(.size = c(1:10), .decay = c(0, 0.01, .1))
+
+set.seed(100)
+nnet_model <- train(trainingData$x, trainingData$y,
+ method = "nnet",
+ tuneGrid = nnetGrid,
+ trControl = trainControl(method="cv"),
+ ## Automatically standardize data prior to modeling and prediction
+ preProc = c("center", "scale"),
+ linout = TRUE,
+ trace = FALSE,
+ MaxNWts = 10 * (ncol(trainingData$x) + 1)  + 10 +  1,
+ maxit = 500)
+
+```
+
+**Train set CV performance - Hyperparameter tuning:**
+```{r, echo=F}
+nnet_model
+```
+
+**Test set performance values:**
+```{r, echo=F}
+nnet_Pred <- predict(nnet_model, newdata = testData$x)
+nnet_pv <- postResample(pred = nnet_Pred, obs = testData$y)
+nnet_pv
+```
+We executed `findCorrelation(cor(trainingData$x), cutoff = .75)` to ensure that the maximum absolute pariwise correlation between the predictors is less than 0.75. After the process, we confirmed there were no highly correlated predictors so let's keep the features as they are.
+
+We found nnet with `size` = 3 (number of units in the hidden layer) and `decay` = 0 (parameter for weight decay) is the optimal model based on RMSE on validating set. RMSE on test set was `r nnet_pv[1]`.
+
+
+**Model 3: Neural Networks Using Model Averaging**
+```{r kj-7.2-3, cache = TRUE, echo=F}
+nnetGrid2 <- expand.grid(.size = c(1:10), .decay = c(0, 0.01, .1), .bag = FALSE)
+
+set.seed(100)
+avnnet_model <- train(trainingData$x, trainingData$y,
+ method = "avNNet",
+ tuneGrid = nnetGrid2,
+ trControl = trainControl(method="cv"),
+ preProc = c("center", "scale"),
+ linout = TRUE,
+ trace = FALSE,
+ MaxNWts = 10 * (ncol(trainingData$x) + 1)  + 10 +  1,
+ maxit = 500)
+```
+
+**Train set CV performance - Hyperparameter tuning:**
+```{r, echo=F}
+avnnet_model
+```
+
+**Test set performance values:**
+```{r, echo=F}
+avnnet_Pred <- predict(avnnet_model, newdata = testData$x)
+avnnet_pv <- postResample(pred = avnnet_Pred, obs = testData$y)
+avnnet_pv
+```
+We found nnet with `size` = 4 (number of units in the hidden layer) and `decay` = 0.1 (parameter for weight decay) is the optimal model based on RMSE on validating set. RMSE on test set was `r avnnet_pv[1]`.
+
+
+**Model 4: Multivariate Adaptive Regression Splines (MARS)**
+```{r kj-7.2-4, cache = TRUE, echo=F}
+marsGrid <- expand.grid(.degree = 1:3, .nprune = 2:38)
+
+set.seed(100)
+mars_model <- train(trainingData$x, trainingData$y,
+ method = "earth",
+ tuneGrid = marsGrid,
+ trControl = trainControl(method="cv"))
+```
+
+**Train set CV performance - Hyperparameter tuning:**
+```{r, echo=F}
+summary(mars_model)
+```
+
+**Test set performance values:**
+```{r, echo=F}
+mars_Pred <- predict(mars_model, newdata = testData$x)
+mars_pv <- postResample(pred = mars_Pred, obs = testData$y)
+mars_pv
+```
+We found MARS with `degree` = 2 (Maximum degree of interaction (Friedman's mi)) and `nprune` = 17 (aximum number of terms (including intercept) in the pruned model) is the optimal model based on RMSE on validating set. RMSE on test set was `r mars_pv[1]`.
+
+
+**Model 5: Support Vector regression**
+```{r kj-7.2-5, echo=F}
+set.seed(100)
+svm_model <- train(trainingData$x, trainingData$y,
+ method = "svmRadial",
+ preProc = c("center", "scale"),
+ tuneLength = 14,
+ trControl = trainControl(method="cv"))
+```
+
+**Train set CV performance - Hyperparameter tuning:**
+```{r, echo=F}
+svm_model
+```
+
+**Test set performance values:**
+```{r, echo=F}
+svm_Pred <- predict(svm_model, newdata = testData$x)
+svm_pv <- postResample(pred = svm_Pred, obs = testData$y)
+svm_pv
+```
+Since the nature of the equation of the data is non-linear, we will use `svmRadial` as kernal function for regression. The final values used for the model were sigma = 0.0552698 and C = 16 with RMSE on test set of `r svm_pv[1]`.
+
+>> (b) Which models appear to give the best performance? Does MARS select the informative predictors (those named X1-X5)?
+
+MARS appears to give the best performance based on RMSE, R squared and MAE on test set. The summary out put of `mars_model` gives us that `Importance: X1, X4, X2, X5, X3, X6-unused, X7-unused, X8-unused, X9-unused, ...`. MARS does select the informative predictors X1-X5 only.
+```{r kj-7.2-6, echo=F}
+sum_t <- data.frame(
+            knn_pv,
+            nnet_pv,
+            avnnet_pv,
+            mars_pv,
+            svm_pv
+            )
+print(sum_t)
+
+summary(mars_model)
+```
+
+## (2) Kuhn & Johnson 7.5
+
+>  Exercise 6.3 describes data for a chemical manufacturing process. Use the same data imputation, data splitting, and pre-processing steps as before and train several nonlinear regression models.
+
+```{r kj-7.5, echo = F, message=F, warning=F, error=F, comment=NA, self.contained = F}
+# Call code from 6.3
+data("ChemicalManufacturingProcess")
+
+# save df
+df <- ChemicalManufacturingProcess
+
+# set seed for split to allow for reproducibility
+set.seed(20190227L)
+
+# use mice w/ default settings to impute missing data
+miceImput <- mice::mice(df, printFlag = FALSE)
+
+# add imputed data to original data set
+df_mice <- mice::complete(miceImput)
+
+# Look for any features with no variance:
+zero_cols <- nearZeroVar( df_mice )
+df_final <- df_mice[,-zero_cols] # drop these zero variance columns
+```
+
+
+>> (a) Which nonlinear regression model gives the optimal resampling and test set performance? 
+
+```{r kj-7.5a, cache = TRUE, echo=F}
+# code
+# split data train/test
+training <- df_final$Yield %>%
+  createDataPartition(p = 0.8, list = FALSE)
+
+df_train  <- df_final[training, ]
+df_test <- df_final[-training, ]
+
+# model1 - KNN
+set.seed(100)
+knn_model2 <- train(Yield~., data = df_train,
+                   method = "knn",
+                   # Center and scaling will occur for new predictions too
+                   preProc = c("center", "scale"),
+                   tuneGrid = data.frame(.k = 1:50),
+                   trControl = trainControl(method = "cv"))
+
+
+knn_Pred2 <- predict(knn_model2, newdata = df_test)
+
+## The function 'postResample' can be used to get the test set performance values
+knn_pv2 <- postResample(pred = knn_Pred2, obs = df_test$Yield)
+
+
+# model2 - nnet
+# remove highly correlated predictors to ensure that the maximum absolute pariwise correlation between the predictors is less than 0.75.
+df_train_x <- df_train[-1]
+df_train_y <- df_train[,1]
+df_test_x <- df_test[-1]
+df_test_y <- df_test[,1]
+
+tooHigh <- findCorrelation(cor(df_train_x), cutoff = .75)
+
+trainx_nn <- df_train_x[, -tooHigh]
+testx_nn <-  df_test_x[, -tooHigh]
+
+# hyperparameter tuning for nnet
+nnetGrid12 <- expand.grid(.size = c(1:10), .decay = c(0, 0.01, .1))
+
+set.seed(100)
+nnet_model2 <- train(trainx_nn, df_train_y,
+                    method = "nnet",
+                    tuneGrid = nnetGrid12,
+                    trControl = trainControl(method="cv"),
+                    ## Automatically standardize data prior to modeling and prediction
+                    preProc = c("center", "scale"),
+                    linout = TRUE,
+                    trace = FALSE,
+                    MaxNWts = 10 * (ncol(trainx_nn) + 1)  + 10 +  1,
+                    maxit = 500)
+
+
+nnet_Pred2 <- predict(nnet_model2, newdata = testx_nn)
+
+## The function 'postResample' can be used to get the test set performance values
+nnet_pv2 <-postResample(pred = nnet_Pred2, obs = df_test_y)
+
+# model 3 - avNNet
+# hyperparameter tuning for avnnet
+nnetGrid22 <- expand.grid(.size = c(1:10), .decay = c(0, 0.01, .1), .bag = FALSE)
+
+set.seed(100)
+avnnet_model2 <- train(trainx_nn, df_train_y,
+                      method = "avNNet",
+                      tuneGrid = nnetGrid22,
+                      trControl = trainControl(method="cv"),
+                      ## Automatically standardize data prior to modeling and prediction
+                      preProc = c("center", "scale"),
+                      linout = TRUE,
+                      trace = FALSE,
+                      MaxNWts = 10 * (ncol(trainx_nn) + 1)  + 10 +  1,
+                      maxit = 500)
+
+
+avnnet_Pred2 <- predict(avnnet_model2, newdata = testx_nn)
+
+## The function 'postResample' can be used to get the test set performance values
+avnnet_pv2 <- postResample(pred = avnnet_Pred2, obs = df_test_y)
+
+# model 4 - MARS
+# hyperparameter tuning for MARS
+marsGrid2 <- expand.grid(.degree = 1:3, .nprune = 2:38)
+
+set.seed(100)
+mars_model2 <- train(Yield~., data = df_train,
+                    method = "earth",
+                    tuneGrid = marsGrid2,
+                    trControl = trainControl(method="cv"))
+
+mars_Pred2 <- predict(mars_model2, newdata = df_test)
+
+## The function 'postResample' can be used to get the test set performance values
+mars_pv2 <- postResample(pred = mars_Pred2, obs = df_test$Yield)
+
+# model 5 - SVM - regression
+set.seed(100)
+svm_model2 <- train(Yield~., data = df_train,
+ method = "svmRadial",
+ preProc = c("center", "scale"),
+ tuneLength = 14,
+ trControl = trainControl(method="cv"))
+
+svm_Pred2 <- predict(svm_model2, newdata = df_test)
+
+## The function 'postResample' can be used to get the test set performance values
+svm_pv2 <- postResample(pred = svm_Pred2, obs = df_test$Yield)
+```
+
+**Test set performance values:**
+```{r kj-7.5a2, echo=F}
+# Model performance metrics
+sum_t2 <- data.frame(
+            knn_pv2,
+            nnet_pv2,
+            avnnet_pv2,
+            mars_pv2,
+            svm_pv2
+            )
+
+print(sum_t2)
+```
+
+SVM regression gives the optimal performance based on RMSE, Rsquared and MAE on test set. 
+
+>> (b) Which predictors are most important in the optimal nonlinear regression model? Do either the biological or process variables dominate the list? How do the top ten important predictors compare to the top ten predictors from the optimal linear model? 
+
+In linear model, `ManufacturingProcess32` was the most important predictor but in non-linear model, it is 2nd most important predictor - the most important predictor is `ManufacturingProcess13`. 
+
+In linear model, only 2 of top 10 were Biological where as in non-linear, 4 of them were.
+
+```{r kj-7.5b, echo=F}
+varimp <- varImp(svm_model2,scale=F,useModel = T)
+plot(varimp, top=15, scales = list(y = list(cex = 0.8)))
+```
+
+>> (c) Explore the relationships between the top predictors and the response for the predictors that are unique to the optimal nonlinear regression model. Do these plots reveal intuition about the biological or process predictors and their relationship with yield?
+
+From Bivariate plot and correlation matrix, we know that `ManufacturingProcess32` has fairly positive relationship with `Yield` where as other 2 variables have fairly negative relationship. Among biological predictors, we know `BiologicalMaterial06` is the most important with fairly strong positive relationship with `Yield`. 
+
+This information can help researchers to focus more on `ManufacturingProcess32` and `BiologicalMaterial06` if their goal is to increase `Yield`. 
+```{r kj-7.5c, echo=F}
+# code
+viporder <- order(abs(varimp$importance),decreasing=TRUE)
+topVIP <- rownames(varimp$importance)[viporder[c(1:5)]]
+```
+
+```{r, echo=F}
+featurePlot(df_train[, topVIP],
+            df_train$Yield,
+            plot = "scatter",
+            between = list(x = 1, y = 1),
+            type = c("g", "p", "smooth"),
+            layout = c(5,1),
+            labels = rep("", 2))
+```
+
+```{r, echo=F}
+corr_top5 <- cor(df_train[, topVIP], df_train$Yield, method = 'pearson', use = 'pairwise.complete.obs')
+data.frame(corr_top5)
+```
+
+## R Code 
+
+```{r 02-code, eval=F,echo=T}
+
+#insert all code here
+# (7.2a)
+##Model 1: KNN model with hyperparameter tuning##
+
+set.seed(100)
+knn_model <- train(trainingData$x,
+                   trainingData$y,
+                   method = "knn",
+                   # Center and scaling will occur for new predictions too
+                   preProc = c("center", "scale"),
+                   tuneGrid = data.frame(.k = 1:50),
+                   trControl = trainControl(method = "cv"))
+
+##Test set performance values:##
+knn_Pred <- predict(knn_model, newdata = testData$x)
+knn_pv <- postResample(pred = knn_Pred, obs = testData$y)
+
+##Model 2: Neural Networks##
+
+#findCorrelation(cor(trainingData$x), cutoff = .75)
+
+# hyperparameter tuning for nnet
+nnetGrid <- expand.grid(.size = c(1:10), .decay = c(0, 0.01, .1))
+
+set.seed(100)
+nnet_model <- train(trainingData$x, trainingData$y,
+                    method = "nnet",
+                    tuneGrid = nnetGrid,
+                    trControl = trainControl(method="cv"),
+                    ## Automatically standardize data prior to modeling and prediction
+                    preProc = c("center", "scale"),
+                    linout = TRUE,
+                    trace = FALSE,
+                    MaxNWts = 10 # (ncol(trainingData$x) + 1)  + 10 +  1,
+                    maxit = 500)
+
+##Test set performance values:##
+nnet_Pred <- predict(nnet_model, newdata = testData$x)
+nnet_pv <- postResample(pred = nnet_Pred, obs = testData$y)
+
+##Model 3: Neural Networks Using Model Averaging##
+nnetGrid2 <- expand.grid(.size = c(1:10), .decay = c(0, 0.01, .1), .bag = FALSE)
+
+set.seed(100)
+avnnet_model <- train(trainingData$x, trainingData$y,
+method = "avNNet",
+tuneGrid = nnetGrid2,
+trControl = trainControl(method="cv"),
+preProc = c("center", "scale"),
+linout = TRUE,
+trace = FALSE,
+MaxNWts = 10 # (ncol(trainingData$x) + 1)  + 10 +  1,
+maxit = 500)
+
+##Test set performance values:##
+avnnet_Pred <- predict(avnnet_model, newdata = testData$x)
+avnnet_pv <- postResample(pred = avnnet_Pred, obs = testData$y)
+
+##Model 4: Multivariate Adaptive Regression Splines (MARS)##
+marsGrid <- expand.grid(.degree = 1:3, .nprune = 2:38)
+
+set.seed(100)
+mars_model <- train(trainingData$x, trainingData$y,
+method = "earth",
+tuneGrid = marsGrid,
+trControl = trainControl(method="cv"))
+
+##Test set performance values:##
+mars_Pred <- predict(mars_model, newdata = testData$x)
+mars_pv <- postResample(pred = mars_Pred, obs = testData$y)
+
+##Model 5: Support Vector regression##
+set.seed(100)
+svm_model <- train(trainingData$x, trainingData$y,
+                   method = "svmRadial",
+                   preProc = c("center", "scale"),
+                   tuneLength = 14,
+                   trControl = trainControl(method="cv"))
+
+##Test set performance values:##
+svm_Pred <- predict(svm_model, newdata = testData$x)
+svm_pv <- postResample(pred = svm_Pred, obs = testData$y)
+
+# (7.2b)
+sum_t <- data.frame(
+  knn_pv,
+  nnet_pv,
+  avnnet_pv,
+  mars_pv,
+  svm_pv
+)
+
+# (7.5a)
+# Call code from 6.3
+data("ChemicalManufacturingProcess")
+
+# save df
+df <- ChemicalManufacturingProcess
+
+# set seed for split to allow for reproducibility
+set.seed(20190227L)
+
+# use mice w/ default settings to impute missing data
+miceImput <- mice::mice(df, printFlag = FALSE)
+
+# add imputed data to original data set
+df_mice <- mice::complete(miceImput)
+
+# Look for any features with no variance:
+zero_cols <- nearZeroVar( df_mice )
+df_final <- df_mice[,-zero_cols] # drop these zero variance columns
+
+# split data train/test
+training <- df_final$Yield %%
+  createDataPartition(p = 0.8, list = FALSE)
+
+df_train  <- df_final[training, ]
+df_test <- df_final[-training, ]
+
+# model1 - KNN
+set.seed(100)
+knn_model2 <- train(Yield~., data = df_train,
+                    method = "knn",
+                    # Center and scaling will occur for new predictions too
+                    preProc = c("center", "scale"),
+                    tuneGrid = data.frame(.k = 1:50),
+                    trControl = trainControl(method = "cv"))
+
+knn_Pred2 <- predict(knn_model2, newdata = df_test)
+
+## The function 'postResample' can be used to get the test set performance values
+knn_pv2 <- postResample(pred = knn_Pred2, obs = df_test$Yield)
+
+# model2 - nnet
+# remove highly correlated predictors to ensure that the maximum absolute pariwise correlation between the predictors is less than 0.75.
+df_train_x <- df_train[-1]
+df_train_y <- df_train[,1]
+df_test_x <- df_test[-1]
+df_test_y <- df_test[,1]
+
+tooHigh <- findCorrelation(cor(df_train_x), cutoff = .75)
+
+trainx_nn <- df_train_x[, -tooHigh]
+testx_nn <-  df_test_x[, -tooHigh]
+
+# hyperparameter tuning for nnet
+nnetGrid12 <- expand.grid(.size = c(1:10), .decay = c(0, 0.01, .1))
+
+set.seed(100)
+nnet_model2 <- train(trainx_nn, df_train_y,
+                     method = "nnet",
+                     tuneGrid = nnetGrid12,
+                     trControl = trainControl(method="cv"),
+                     ## Automatically standardize data prior to modeling and prediction
+                     preProc = c("center", "scale"),
+                     linout = TRUE,
+                     trace = FALSE,
+                     MaxNWts = 10 # (ncol(trainx_nn) + 1)  + 10 +  1,
+                     maxit = 500)
+
+nnet_Pred2 <- predict(nnet_model2, newdata = testx_nn)
+
+## The function 'postResample' can be used to get the test set performance values
+nnet_pv2 <-postResample(pred = nnet_Pred2, obs = df_test_y)
+
+# model 3 - avNNet
+# hyperparameter tuning for avnnet
+nnetGrid22 <- expand.grid(.size = c(1:10), .decay = c(0, 0.01, .1), .bag = FALSE)
+
+set.seed(100)
+avnnet_model2 <- train(trainx_nn, df_train_y,
+                       method = "avNNet",
+                       tuneGrid = nnetGrid22,
+                       trControl = trainControl(method="cv"),
+                       ## Automatically standardize data prior to modeling and prediction
+                       preProc = c("center", "scale"),
+                       linout = TRUE,
+                       trace = FALSE,
+                       MaxNWts = 10 # (ncol(trainx_nn) + 1)  + 10 +  1,
+                       maxit = 500)
+
+avnnet_Pred2 <- predict(avnnet_model2, newdata = testx_nn)
+
+## The function 'postResample' can be used to get the test set performance values
+avnnet_pv2 <- postResample(pred = avnnet_Pred2, obs = df_test_y)
+
+# model 4 - MARS
+# hyperparameter tuning for MARS
+marsGrid2 <- expand.grid(.degree = 1:3, .nprune = 2:38)
+
+set.seed(100)
+mars_model2 <- train(Yield~., data = df_train,
+                     method = "earth",
+                     tuneGrid = marsGrid2,
+                     trControl = trainControl(method="cv"))
+
+mars_Pred2 <- predict(mars_model2, newdata = df_test)
+
+## The function 'postResample' can be used to get the test set performance values
+mars_pv2 <- postResample(pred = mars_Pred2, obs = df_test$Yield)
+
+# model 5 - SVM - regression
+set.seed(100)
+svm_model2 <- train(Yield~., data = df_train,
+                    method = "svmRadial",
+                    preProc = c("center", "scale"),
+                    tuneLength = 14,
+                    trControl = trainControl(method="cv"))
+
+svm_Pred2 <- predict(svm_model2, newdata = df_test)
+
+## The function 'postResample' can be used to get the test set performance values
+svm_pv2 <- postResample(pred = svm_Pred2, obs = df_test$Yield)
+
+# Model performance metrics
+sum_t2 <- data.frame(
+  knn_pv2,
+  nnet_pv2,
+  avnnet_pv2,
+  mars_pv2,
+  svm_pv2
+)
+
+# (7.5b)
+varimp <- varImp(svm_model2,scale=F,useModel = T)
+#plot(varimp, top=15, scales = list(y = list(cex = 0.8)))
+
+# (7.5c)
+viporder <- order(abs(varimp$importance),decreasing=TRUE)
+topVIP <- rownames(varimp$importance)[viporder[c(1:5)]]
+
+#featurePlot(df_train[, topVIP],
+#            df_train$Yield,
+#            plot = "scatter",
+#            between = list(x = 1, y = 1),
+#            type = c("g", "p", "smooth"),
+#            layout = c(5,1),
+#            labels = rep("", 2))
+corr_top5 <- cor(df_train[, topVIP], df_train$Yield, method = 'pearson', use = 'pairwise.complete.obs')
+```
